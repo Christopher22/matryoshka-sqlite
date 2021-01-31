@@ -1,0 +1,9 @@
+[package]
+name = "matryoshka-rs"
+version = "0.1.0"
+authors = ["Christopher Gundler <christopher@gundler.de>"]
+edition = "2018"
+
+[dependencies.rusqlite]
+version = "0.24"
+features = ["bundled", "blob"]
