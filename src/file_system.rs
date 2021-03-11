@@ -1,82 +1,90 @@
+use std::borrow::BorrowMut;
 use std::convert::{TryFrom, TryInto};
 use std::io::{ErrorKind, Read, Write};
 
-use const_format::formatcp;
 use rusqlite::limits::Limit;
 use rusqlite::{params, Connection as Database, DatabaseName, Error, ErrorCode, OptionalExtension};
 
 use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError, ReadError};
 use super::util::{Availability, Handle, MetaData, VirtualPath};
 
+mod constants {
+    use const_format::formatcp;
+
+    pub const CURRENT_MATRYOSHKA_VERSION: u32 = 0;
+    pub const MATRYOSHKA_TABLE: &str = "Matryoshka_Meta_0";
+    // One day, that might be derived directly from a const function.
+    pub const DATA_TABLE: &str = "Matryoshka_Data";
+
+    pub const FILE_ID: u32 = 0;
+
+    pub const DEFAULT_BYTE_BLOB_SIZE: usize = 33554432; // 32MB
+
+    pub const SQL_CREATE_META: &str = formatcp!(
+        "CREATE TABLE {} (id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, type INTEGER, flags INTEGER, chunk_size INTEGER NOT NULL)",
+        MATRYOSHKA_TABLE
+    );
+    pub const SQL_CREATE_DATA: &str = formatcp!(
+        "CREATE TABLE IF NOT EXISTS {} (chunk_id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, chunk_num INTEGER NOT NULL, data BLOB NOT NULL, CONSTRAINT unq UNIQUE (file_id, chunk_num), FOREIGN KEY(file_id) REFERENCES {} (id) ON DELETE CASCADE ON UPDATE CASCADE)",
+        DATA_TABLE,
+        MATRYOSHKA_TABLE
+    );
+    pub const SQL_CREATE_HANDLE: &str = formatcp!(
+        "INSERT INTO {} (path, type, chunk_size) VALUES (?, ?, ?)",
+        MATRYOSHKA_TABLE
+    );
+    pub const SQL_CREATE_BLOB: &str = formatcp!(
+        "INSERT INTO {} (file_id, chunk_num, data) VALUES (?, ?, ?)",
+        DATA_TABLE
+    );
+    pub const SQL_GET_HANDLE: &str = formatcp!(
+        "SELECT id FROM {} WHERE path = ? AND type = ?",
+        MATRYOSHKA_TABLE
+    );
+    pub const SQL_GLOB: &str = formatcp!(
+        "SELECT path FROM {} WHERE path GLOB ? AND type = ?",
+        MATRYOSHKA_TABLE
+    );
+    pub const SQL_SIZE: &str = formatcp!(
+        "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM {} WHERE file_id = ?",
+        DATA_TABLE
+    );
+    pub const SQL_DELETE: &str = formatcp!("DELETE FROM {} WHERE id = ?", MATRYOSHKA_TABLE);
+    pub const SQL_GET_BLOBS: &str = formatcp!("SELECT chunk_id, chunk_num, {meta}.chunk_size FROM {data}
+        INNER JOIN {meta} ON {meta}.id={data}.file_id
+        WHERE file_id = :handle AND chunk_num BETWEEN cast((:index / {meta}.chunk_size) as int) AND cast(((:index + :size - 1) / {meta}.chunk_size) as int)
+        ORDER BY chunk_num ASC",
+        data=DATA_TABLE,
+        meta=MATRYOSHKA_TABLE
+    );
+}
+
 /// A virtual file system in a SQLite database.
 #[derive(Debug)]
-pub struct FileSystem<'a> {
-    /// A reference to the SQLite database.
-    pub database: &'a mut Database,
+pub struct FileSystem<D> {
+    database: D,
     meta_data: MetaData,
 }
 
 /// A file stored in the virtual file system.
 #[derive(Debug)]
-pub struct File<'a, 'fs> {
-    file_system: &'a FileSystem<'fs>,
+pub struct File<'a, D> {
+    file_system: &'a FileSystem<D>,
     handle: Handle,
 }
 
-impl<'a> FileSystem<'a> {
-    const CURRENT_MATRYOSHKA_VERSION: u32 = 0;
-    const MATRYOSHKA_TABLE: &'static str = "Matryoshka_Meta_0";
-    const DATA_TABLE: &'static str = "Matryoshka_Data";
-
-    const DEFAULT_BYTE_BLOB_SIZE: usize = 33554432; // 32MB
-
-    const SQL_CREATE_META: &'static str = formatcp!(
-        "CREATE TABLE {} (id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, type INTEGER, flags INTEGER, chunk_size INTEGER NOT NULL)",
-        FileSystem::MATRYOSHKA_TABLE
-    );
-    const SQL_CREATE_DATA: &'static str = formatcp!(
-        "CREATE TABLE IF NOT EXISTS {} (chunk_id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, chunk_num INTEGER NOT NULL, data BLOB NOT NULL, CONSTRAINT unq UNIQUE (file_id, chunk_num), FOREIGN KEY(file_id) REFERENCES {} (id) ON DELETE CASCADE ON UPDATE CASCADE)",
-        FileSystem::DATA_TABLE,
-        FileSystem::MATRYOSHKA_TABLE
-    );
-    const SQL_CREATE_HANDLE: &'static str = formatcp!(
-        "INSERT INTO {} (path, type, chunk_size) VALUES (?, ?, ?)",
-        FileSystem::MATRYOSHKA_TABLE
-    );
-    const SQL_CREATE_BLOB: &'static str = formatcp!(
-        "INSERT INTO {} (file_id, chunk_num, data) VALUES (?, ?, ?)",
-        FileSystem::DATA_TABLE
-    );
-    const SQL_GET_HANDLE: &'static str = formatcp!(
-        "SELECT id FROM {} WHERE path = ? AND type = ?",
-        FileSystem::MATRYOSHKA_TABLE
-    );
-    const SQL_GLOB: &'static str = formatcp!(
-        "SELECT path FROM {} WHERE path GLOB ? AND type = ?",
-        FileSystem::MATRYOSHKA_TABLE
-    );
-    const SQL_SIZE: &'static str = formatcp!(
-        "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM {} WHERE file_id = ?",
-        FileSystem::DATA_TABLE
-    );
-    const SQL_DELETE: &'static str =
-        formatcp!("DELETE FROM {} WHERE id = ?", FileSystem::MATRYOSHKA_TABLE);
-    const SQL_GET_BLOBS: &'static str = formatcp!("SELECT chunk_id, chunk_num, {meta}.chunk_size FROM {data}
-        INNER JOIN {meta} ON {meta}.id={data}.file_id
-        WHERE file_id = :handle AND chunk_num BETWEEN cast((:index / {meta}.chunk_size) as int) AND cast(((:index + :size - 1) / {meta}.chunk_size) as int)
-        ORDER BY chunk_num ASC",
-        data=FileSystem::DATA_TABLE,
-        meta=FileSystem::MATRYOSHKA_TABLE
-    );
-
+impl<D> FileSystem<D>
+where
+    D: BorrowMut<Database>,
+{
     /// Load the virtual file system from an SQLite database.
     pub fn load(
-        database: &mut Database,
+        mut database: D,
         create_file_system: bool,
-    ) -> Result<FileSystem, FileSystemError> {
-        let meta_data = match MetaData::from_database(&database) {
+    ) -> Result<FileSystem<D>, FileSystemError> {
+        let meta_data = match MetaData::from_database(database.borrow()) {
             Availability::Available(meta_data)
-                if meta_data.version() == FileSystem::CURRENT_MATRYOSHKA_VERSION =>
+                if meta_data.version() == constants::CURRENT_MATRYOSHKA_VERSION =>
             {
                 Ok(meta_data)
             }
@@ -84,12 +92,12 @@ impl<'a> FileSystem<'a> {
                 Err(FileSystemError::UnsupportedVersion(meta_data.version()))
             }
             Availability::Missing if create_file_system => {
-                let transaction = database.transaction()?;
-                transaction.execute(FileSystem::SQL_CREATE_META, rusqlite::NO_PARAMS)?;
-                transaction.execute(FileSystem::SQL_CREATE_DATA, rusqlite::NO_PARAMS)?;
+                let transaction = database.borrow_mut().transaction()?;
+                transaction.execute(constants::SQL_CREATE_META, rusqlite::NO_PARAMS)?;
+                transaction.execute(constants::SQL_CREATE_DATA, rusqlite::NO_PARAMS)?;
                 transaction.commit()?;
                 Ok(MetaData::from_version(
-                    FileSystem::CURRENT_MATRYOSHKA_VERSION,
+                    constants::CURRENT_MATRYOSHKA_VERSION,
                 ))
             }
             Availability::Missing => Err(FileSystemError::NoFileSystem),
@@ -98,19 +106,22 @@ impl<'a> FileSystem<'a> {
 
         // Pre-compile the primary SQL commands
         const PRECOMPILED_COMMANDS: [&str; 6] = [
-            FileSystem::SQL_GET_HANDLE,
-            FileSystem::SQL_CREATE_HANDLE,
-            FileSystem::SQL_GLOB,
-            FileSystem::SQL_SIZE,
-            FileSystem::SQL_DELETE,
-            FileSystem::SQL_GET_BLOBS,
+            constants::SQL_GET_HANDLE,
+            constants::SQL_CREATE_HANDLE,
+            constants::SQL_GLOB,
+            constants::SQL_SIZE,
+            constants::SQL_DELETE,
+            constants::SQL_GET_BLOBS,
         ];
 
-        database.set_prepared_statement_cache_capacity(PRECOMPILED_COMMANDS.len());
+        database
+            .borrow()
+            .set_prepared_statement_cache_capacity(PRECOMPILED_COMMANDS.len());
         for statement in &PRECOMPILED_COMMANDS {
             database
+                .borrow()
                 .prepare_cached(statement)
-                .or_else(|error| Err(FileSystemError::InvalidBaseCommand(statement, error)))?;
+                .map_err(|error| FileSystemError::InvalidBaseCommand(statement, error))?;
         }
 
         Ok(FileSystem {
@@ -125,24 +136,24 @@ impl<'a> FileSystem<'a> {
         mut data: R,
         chunk_size: usize,
     ) -> Result<Handle, CreationError> {
-        let max_blob_size = self.database.limit(Limit::SQLITE_LIMIT_LENGTH);
+        let max_blob_size = self.database.borrow().limit(Limit::SQLITE_LIMIT_LENGTH);
         let chunk_size = match chunk_size {
             value if value > 0 && value <= max_blob_size as usize => value,
-            _ => FileSystem::DEFAULT_BYTE_BLOB_SIZE,
+            _ => constants::DEFAULT_BYTE_BLOB_SIZE,
         };
 
         // Create the transaction to return safely on errors and prepare the statement.
-        let transaction = self.database.transaction()?;
+        let transaction = self.database.borrow_mut().transaction()?;
 
         let handle = {
             let mut create_handle_statement =
-                transaction.prepare_cached(FileSystem::SQL_CREATE_HANDLE)?;
+                transaction.prepare_cached(constants::SQL_CREATE_HANDLE)?;
             let mut create_blob_statement =
-                transaction.prepare_cached(FileSystem::SQL_CREATE_BLOB)?;
+                transaction.prepare_cached(constants::SQL_CREATE_BLOB)?;
 
             let handle = match create_handle_statement.insert(params![
                 path.into().as_ref(),
-                File::TYPE_ID,
+                constants::FILE_ID,
                 chunk_size as i32
             ]) {
                 Ok(handle) => handle,
@@ -190,10 +201,11 @@ impl<'a> FileSystem<'a> {
     fn open<T: Into<VirtualPath>>(&self, path: T) -> Result<Option<Handle>, DatabaseError> {
         let mut handle_query = self
             .database
-            .prepare_cached(FileSystem::SQL_GET_HANDLE)
+            .borrow()
+            .prepare_cached(constants::SQL_GET_HANDLE)
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
         handle_query
-            .query_row(params![path.into().as_ref(), File::TYPE_ID], |row| {
+            .query_row(params![path.into().as_ref(), constants::FILE_ID], |row| {
                 Ok(Handle(row.get_unwrap(0)))
             })
             .optional()
@@ -216,7 +228,10 @@ impl<'a> FileSystem<'a> {
         }
 
         // Prepare the statements regarding the blobs
-        let mut blobs_statement = self.database.prepare_cached(FileSystem::SQL_GET_BLOBS)?;
+        let mut blobs_statement = self
+            .database
+            .borrow()
+            .prepare_cached(constants::SQL_GET_BLOBS)?;
 
         // Let SQLite calculate all the key characteristics
         let mut chuck_size: Option<i32> = None;
@@ -252,9 +267,9 @@ impl<'a> FileSystem<'a> {
         let mut blob_cache: Option<rusqlite::blob::Blob> = None;
         for (index, (first_index, blob_id)) in blob_indices.into_iter().enumerate() {
             let blob = match blob_cache {
-                None => self.database.blob_open(
+                None => self.database.borrow().blob_open(
                     DatabaseName::Main,
-                    FileSystem::DATA_TABLE,
+                    constants::DATA_TABLE,
                     "data",
                     blob_id,
                     true,
@@ -290,7 +305,8 @@ impl<'a> FileSystem<'a> {
     fn size(&self, handle: Handle) -> Result<usize, DatabaseError> {
         let mut handle_query = self
             .database
-            .prepare_cached(FileSystem::SQL_SIZE)
+            .borrow()
+            .prepare_cached(constants::SQL_SIZE)
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
         handle_query
             .query_row(params![handle.0], |row| {
@@ -300,16 +316,17 @@ impl<'a> FileSystem<'a> {
     }
 }
 
-impl<'a, 'fs> File<'a, 'fs> {
-    const TYPE_ID: u32 = 0;
-
+impl<'a, D> File<'a, D>
+where
+    D: BorrowMut<Database>,
+{
     /// Create a file in the virtual file system.
     pub fn create<T: AsRef<str>, R: Read>(
-        file_system: &'a mut FileSystem<'fs>,
+        file_system: &'a mut FileSystem<D>,
         path: T,
         data: R,
         chunk_size: usize,
-    ) -> Result<File<'a, 'fs>, CreationError> {
+    ) -> Result<File<'a, D>, CreationError> {
         file_system
             .create(path.as_ref(), data, chunk_size)
             .map(move |handle| File {
@@ -320,9 +337,9 @@ impl<'a, 'fs> File<'a, 'fs> {
 
     /// Load a file from the virtual file system.
     pub fn load<T: AsRef<str>>(
-        file_system: &'a FileSystem<'fs>,
+        file_system: &'a FileSystem<D>,
         path: T,
-    ) -> Result<File<'a, 'fs>, LoadingError> {
+    ) -> Result<File<'a, D>, LoadingError> {
         match file_system.open(path.as_ref()) {
             Ok(Some(handle)) => Ok(File {
                 file_system,
@@ -341,6 +358,11 @@ impl<'a, 'fs> File<'a, 'fs> {
     /// Query the length of the file.
     pub fn len(&self) -> usize {
         self.file_system.size(self.handle).unwrap_or(0)
+    }
+
+    /// Checks whether the file is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
