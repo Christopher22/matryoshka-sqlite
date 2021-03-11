@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 regex = "1"
+const_format = "0.2"
 
 [dependencies.rusqlite]
 version = "0.24"

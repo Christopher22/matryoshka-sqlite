@@ -1,3 +1,4 @@
+use const_format::concatcp;
 use regex::Regex;
 use rusqlite::Connection as Database;
 use rusqlite::Error as DatabaseError;
@@ -18,6 +19,11 @@ pub enum Availability {
 }
 
 impl MetaData {
+    /// Create a meta data directly for a specific version.
+    pub const fn from_version(version: u32) -> Self {
+        MetaData(version)
+    }
+
     /// Queries a database for the most recent meta data available.
     pub fn from_database(database: &Database) -> Availability {
         let mut statement = match database
@@ -27,10 +33,11 @@ impl MetaData {
             Err(err) => return Availability::Error(err),
         };
 
-        let versions = match statement.query(&[MetaDataExtractor::META_TABLE_PREFIX]) {
-            Ok(versions) => versions,
-            Err(err) => return Availability::Error(err),
-        };
+        let versions =
+            match statement.query(&[concatcp!(MetaDataExtractor::META_TABLE_PREFIX, "%")]) {
+                Ok(versions) => versions,
+                Err(err) => return Availability::Error(err),
+            };
 
         let version_extractor = MetaDataExtractor::default();
         let last_version = versions
@@ -68,17 +75,17 @@ struct MetaDataExtractor(Regex);
 impl Default for MetaDataExtractor {
     fn default() -> Self {
         MetaDataExtractor(
-            Regex::new(&MetaDataExtractor::META_TABLE_PREFIX.replace('%', "([0-9]+)"))
+            Regex::new(concatcp!(MetaDataExtractor::META_TABLE_PREFIX, "([0-9]+)"))
                 .expect("Encounter invalid Matryoshka RegEx"),
         )
     }
 }
 
 impl MetaDataExtractor {
-    const META_TABLE_PREFIX: &'static str = "Matryoshka_Meta_%";
+    const META_TABLE_PREFIX: &'static str = "Matryoshka_Meta_";
 
     pub fn generate_table_name(version: u32) -> String {
-        MetaDataExtractor::META_TABLE_PREFIX.replace('%', &version.to_string())
+        format!("{}{}", MetaDataExtractor::META_TABLE_PREFIX, version)
     }
 
     pub fn extract<T: AsRef<str>>(&self, value: T) -> Option<u32> {
