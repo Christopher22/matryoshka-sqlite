@@ -10,4 +10,7 @@ const_format = "0.2"
 
 [dependencies.rusqlite]
 version = "0.24"
-features = ["bundled", "blob"]
+features = ["bundled", "blob", "limits"]
+
+[dev-dependencies]
+test-case = "1.1"
