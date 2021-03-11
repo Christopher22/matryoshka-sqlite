@@ -296,6 +296,17 @@ where
         }
     }
 
+    fn delete(&self, handle: Handle) -> Result<usize, DatabaseError> {
+        let mut delete_query = self
+            .database
+            .borrow()
+            .prepare_cached(constants::SQL_DELETE)
+            .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
+        delete_query
+            .execute(params![handle.0])
+            .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))
+    }
+
     fn size(&self, handle: Handle) -> Result<Option<usize>, DatabaseError> {
         let mut handle_query = self
             .database
@@ -385,6 +396,11 @@ where
     /// Query the raw underlying handle.
     pub fn handle(&self) -> Handle {
         self.handle
+    }
+
+    /// Delete the file from the virtual file system.
+    pub fn delete(self) -> bool {
+        self.file_system.delete(self.handle) == Ok(1)
     }
 }
 
@@ -590,5 +606,36 @@ mod tests {
             .try_into()
             .expect("Unable to re-open empty file");
         assert_eq!(reopened_file.len(), 0);
+    }
+
+    #[test]
+    fn test_delete() {
+        let mut file_system = FileSystem::load(
+            Database::open_in_memory().expect("Open in-memory database failed"),
+            true,
+        )
+        .expect("Creating filesystem failed");
+        let data = [1u8, 2, 3];
+        let path = "abc";
+
+        // Create file
+        File::create(&mut file_system, path, &data[..], 3).expect("File creation failed");
+
+        // Check that the file exists
+        File::create(&mut file_system, path, &data[..], 3)
+            .expect_err("File created despite existent");
+
+        // Delete the file
+        let file = File::load(&mut file_system, path).expect("Existing file not found");
+        assert!(file.delete());
+
+        // Check the file does not longer exists
+        assert_eq!(
+            File::load(&mut file_system, path).expect_err("Delete file still found"),
+            LoadingError::FileNotFound
+        );
+
+        // Check a new file can be created
+        File::create(&mut file_system, path, &data[..], 3).expect("File (re-)creation failed");
     }
 }
