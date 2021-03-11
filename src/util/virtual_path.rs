@@ -49,7 +49,7 @@ where
 
 impl AsRef<str> for VirtualPath {
     fn as_ref(&self) -> &str {
-        return self.0.as_str();
+        self.0.as_str()
     }
 }
 
