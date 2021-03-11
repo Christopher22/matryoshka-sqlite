@@ -97,7 +97,7 @@ impl<'a> FileSystem<'a> {
         }?;
 
         // Pre-compile the primary SQL commands
-        const PRECOMPILED_COMMANDS: [&'static str; 6] = [
+        const PRECOMPILED_COMMANDS: [&str; 6] = [
             FileSystem::SQL_GET_HANDLE,
             FileSystem::SQL_CREATE_HANDLE,
             FileSystem::SQL_GLOB,
