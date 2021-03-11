@@ -1,11 +1,11 @@
-use std::convert::TryInto;
-use std::io::{ErrorKind, Read};
+use std::convert::{TryFrom, TryInto};
+use std::io::{ErrorKind, Read, Write};
 
 use const_format::formatcp;
 use rusqlite::limits::Limit;
-use rusqlite::{params, Connection as Database, Error, ErrorCode, OptionalExtension};
+use rusqlite::{params, Connection as Database, DatabaseName, Error, ErrorCode, OptionalExtension};
 
-use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError};
+use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError, ReadError};
 use super::util::{Availability, Handle, MetaData, VirtualPath};
 
 /// A virtual file system in a SQLite database.
@@ -200,6 +200,93 @@ impl<'a> FileSystem<'a> {
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))
     }
 
+    fn read<W: Write>(
+        &self,
+        handle: Handle,
+        mut sink: W,
+        index: usize,
+        length: usize,
+    ) -> Result<usize, ReadError> {
+        let index = i32::try_from(index).map_err(|_| ReadError::FileSystemLimits)?;
+
+        // Check length and exit early if not data is of interest
+        let length = i32::try_from(length).map_err(|_| ReadError::FileSystemLimits)?;
+        if length == 0 {
+            return Ok(0);
+        }
+
+        // Prepare the statements regarding the blobs
+        let mut blobs_statement = self.database.prepare_cached(FileSystem::SQL_GET_BLOBS)?;
+
+        // Let SQLite calculate all the key characteristics
+        let mut chuck_size: Option<i32> = None;
+        let blob_indices: Vec<_> = blobs_statement
+            .query_map_named(
+                &[
+                    (":handle", &handle.0),
+                    (":index", &index),
+                    (":size", &length),
+                ],
+                |row| {
+                    Ok(match chuck_size {
+                        Some(_) => (0usize, row.get_unwrap(0)),
+                        None => {
+                            let raw_chunk_size = row.get_unwrap(2);
+                            let chunk_num: i32 = row.get_unwrap(1);
+                            chuck_size = Some(raw_chunk_size);
+                            let offset: i32 = index - (chunk_num * raw_chunk_size);
+                            (offset as usize, row.get_unwrap(0))
+                        }
+                    })
+                },
+            )?
+            .map(|blob_index| blob_index.unwrap())
+            .collect();
+
+        let chunk_size = chuck_size.ok_or(ReadError::OutOfBounds)?;
+
+        // Initialize the chunk: Chunk size must always be equal or larger to the biggest blob.
+        let mut buffer = vec![0u8; chunk_size as usize];
+
+        let mut bytes_read = 0i32;
+        let mut blob_cache: Option<rusqlite::blob::Blob> = None;
+        for (index, (first_index, blob_id)) in blob_indices.into_iter().enumerate() {
+            let blob = match blob_cache {
+                None => self.database.blob_open(
+                    DatabaseName::Main,
+                    FileSystem::DATA_TABLE,
+                    "data",
+                    blob_id,
+                    true,
+                ),
+                Some(mut blob) => blob.reopen(blob_id).map(|_| blob),
+            }?;
+
+            let mut num_bytes = std::cmp::min(blob.size(), length - bytes_read);
+            if index == 0 {
+                num_bytes = std::cmp::min(blob.size() - first_index as i32, num_bytes);
+                if num_bytes <= 0 {
+                    return Err(ReadError::OutOfBounds);
+                }
+            }
+
+            // Read data into the buffer
+            blob.read_at_exact(&mut buffer[..num_bytes as usize], first_index)?;
+
+            // Copy data to writer
+            sink.write_all(&buffer[..num_bytes as usize])?;
+
+            bytes_read += num_bytes;
+            blob_cache = Some(blob);
+        }
+
+        // Raise an out-of-bound error if the length it too large.
+        match bytes_read == length {
+            true => Ok(bytes_read as usize),
+            false => Err(ReadError::OutOfBounds),
+        }
+    }
+
     fn size(&self, handle: Handle) -> Result<usize, DatabaseError> {
         let mut handle_query = self
             .database
@@ -246,6 +333,11 @@ impl<'a, 'fs> File<'a, 'fs> {
         }
     }
 
+    /// Read the content of a file from the virtual file system.
+    pub fn read<W: Write>(&self, sink: W, index: usize, length: usize) -> Result<usize, ReadError> {
+        self.file_system.read(self.handle, sink, index, length)
+    }
+
     /// Query the length of the file.
     pub fn len(&self) -> usize {
         self.file_system.size(self.handle).unwrap_or(0)
@@ -256,7 +348,7 @@ impl<'a, 'fs> File<'a, 'fs> {
 mod tests {
     use test_case::test_case;
 
-    use crate::errors::CreationError;
+    use crate::errors::{CreationError, ReadError};
 
     use super::{Database, File, FileSystem, FileSystemError};
 
@@ -277,20 +369,63 @@ mod tests {
         }
     }
 
-    #[test_case("file", 0, 0; "'file', File size: 0, Chunk size: 0")]
-    #[test_case("file", 1, 0; "'file', File size: 1, Chunk size: 0")]
-    #[test_case("file", 3, 0; "'file', File size: 3, Chunk size: 0")]
-    #[test_case("file", 0, 1; "'file', File size: 0, Chunk size: 1")]
-    #[test_case("file", 1, 1; "'file', File size: 1, Chunk size: 1")]
-    #[test_case("file", 3, 1; "'file', File size: 3, Chunk size: 1")]
-    #[test_case("file", 0, 3; "'file', File size: 0, Chunk size: 3")]
-    #[test_case("file", 1, 3; "'file', File size: 1, Chunk size: 3")]
-    #[test_case("file", 3, 3; "'file', File size: 3, Chunk size: 3")]
-    #[test_case("file", 0, 4; "'file', File size: 0, Chunk size: 4")]
-    #[test_case("file", 1, 4; "'file', File size: 1, Chunk size: 4")]
-    #[test_case("file", 3, 4; "'file', File size: 3, Chunk size: 4")]
-    fn create_file(path: &str, file_size: u8, chunk_size: usize) {
+    #[test_case(0, 0, 0, 0, false; "File size: 0, Chunk size: 0, First index: 0, Length: 0")]
+    #[test_case(1, 0, 0, 1, false; "File size: 1, Chunk size: 0, First index: 0, Length: 1")]
+    #[test_case(3, 0, 0, 3, false; "File size: 3, Chunk size: 0, First index: 0, Length: 3")]
+    #[test_case(0, 1, 0, 0, false; "File size: 0, Chunk size: 1, First index: 0, Length: 0")]
+    #[test_case(1, 1, 0, 1, false; "File size: 1, Chunk size: 1, First index: 0, Length: 1")]
+    #[test_case(3, 1, 0, 3, false; "File size: 3, Chunk size: 1, First index: 0, Length: 3")]
+    #[test_case(0, 3, 0, 0, false; "File size: 0, Chunk size: 3, First index: 0, Length: 0")]
+    #[test_case(1, 3, 0, 1, false; "File size: 1, Chunk size: 3, First index: 0, Length: 1")]
+    #[test_case(3, 3, 0, 3, false; "File size: 3, Chunk size: 3, First index: 0, Length: 3")]
+    #[test_case(0, 4, 0, 0, false; "File size: 0, Chunk size: 4, First index: 0, Length: 0")]
+    #[test_case(1, 4, 0, 1, false; "File size: 1, Chunk size: 4, First index: 0, Length: 1")]
+    #[test_case(3, 4, 0, 3, false; "File size: 3, Chunk size: 4, First index: 0, Length: 3")]
+    // Test random reads
+    #[test_case(3, 0, 1, 2, false; "File size: 3, Chunk size: 0, First index: 1, Length: 2")]
+    #[test_case(3, 1, 1, 2, false; "File size: 3, Chunk size: 1, First index: 1, Length: 2")]
+    #[test_case(3, 3, 1, 2, false; "File size: 3, Chunk size: 3, First index: 1, Length: 2")]
+    #[test_case(3, 4, 1, 2, false; "File size: 3, Chunk size: 4, First index: 1, Length: 2")]
+    #[test_case(3, 0, 2, 1, false; "File size: 3, Chunk size: 0, First index: 2, Length: 1")]
+    #[test_case(3, 1, 2, 1, false; "File size: 3, Chunk size: 1, First index: 2, Length: 1")]
+    #[test_case(3, 3, 2, 1, false; "File size: 3, Chunk size: 3, First index: 2, Length: 1")]
+    #[test_case(3, 4, 2, 1, false; "File size: 3, Chunk size: 4, First index: 2, Length: 1")]
+    #[test_case(6, 4, 2, 1, false; "File size: 4, Chunk size: 4, First index: 2, Length: 2")]
+    // Test out-of-bounds
+    #[test_case(0, 0, 0, 1, true; "File size: 0, Chunk size: 0, First index: 0, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 0, 1, 1, true; "File size: 1, Chunk size: 0, First index: 1, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 0, 1, 2, true; "File size: 1, Chunk size: 0, First index: 1, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(3, 0, 1, 3, true; "File size: 3, Chunk size: 0, First index: 1, Length: 3 --> OUT OF BOUNDS!")]
+    #[test_case(3, 0, 2, 2, true; "File size: 3, Chunk size: 0, First index: 2, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(0, 1, 0, 1, true; "File size: 0, Chunk size: 1, First index: 0, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 1, 1, 1, true; "File size: 1, Chunk size: 1, First index: 1, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 1, 1, 2, true; "File size: 1, Chunk size: 1, First index: 1, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(3, 1, 1, 3, true; "File size: 3, Chunk size: 1, First index: 1, Length: 3 --> OUT OF BOUNDS!")]
+    #[test_case(3, 1, 2, 2, true; "File size: 3, Chunk size: 1, First index: 2, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(0, 3, 0, 1, true; "File size: 0, Chunk size: 3, First index: 0, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 3, 1, 1, true; "File size: 1, Chunk size: 3, First index: 1, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 3, 1, 2, true; "File size: 1, Chunk size: 3, First index: 1, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(3, 3, 1, 3, true; "File size: 3, Chunk size: 3, First index: 1, Length: 3 --> OUT OF BOUNDS!")]
+    #[test_case(3, 3, 2, 2, true; "File size: 3, Chunk size: 3, First index: 2, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(0, 4, 0, 1, true; "File size: 0, Chunk size: 4, First index: 0, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 4, 1, 1, true; "File size: 1, Chunk size: 4, First index: 1, Length: 1 --> OUT OF BOUNDS!")]
+    #[test_case(1, 4, 1, 2, true; "File size: 1, Chunk size: 4, First index: 1, Length: 2 --> OUT OF BOUNDS!")]
+    #[test_case(3, 4, 1, 3, true; "File size: 3, Chunk size: 4, First index: 1, Length: 3 --> OUT OF BOUNDS!")]
+    #[test_case(3, 4, 2, 2, true; "File size: 3, Chunk size: 4, First index: 2, Length: 2 --> OUT OF BOUNDS!")]
+    // Special case: It is always save to read data of length 0
+    #[test_case(0, 0, 1, 0, false; "File size: 0, Chunk size: 0, First index: 1, Length: 0")]
+    #[test_case(0, 1, 1, 0, false; "File size: 0, Chunk size: 1, First index: 1, Length: 0")]
+    #[test_case(0, 3, 1, 0, false; "File size: 0, Chunk size: 3, First index: 1, Length: 0")]
+    #[test_case(0, 4, 1, 0, false; "File size: 0, Chunk size: 4, First index: 1, Length: 0")]
+    fn test_file_handling(
+        file_size: u8,
+        chunk_size: usize,
+        index: usize,
+        length: usize,
+        is_out_of_bounds: bool,
+    ) {
         let data: Vec<_> = (0..file_size).into_iter().collect();
+        let path = "file";
         let mut connection = Database::open_in_memory().expect("Open in-memory database failed");
         let mut file_system =
             FileSystem::load(&mut connection, true).expect("Creating filesystem failed");
@@ -309,10 +444,29 @@ mod tests {
             CreationError::FileExists
         );
 
-        // Load file
+        // Load and read file
         {
             let file = File::load(&mut file_system, path).expect("Loading file failed");
             assert_eq!(file.len(), data.len());
+
+            let mut read_data = Vec::new();
+            if is_out_of_bounds {
+                assert_eq!(
+                    file.read(&mut read_data, index, length)
+                        .expect_err("Reading file content was successful despite out of bounds"),
+                    ReadError::OutOfBounds
+                );
+            } else {
+                assert_eq!(
+                    file.read(&mut read_data, index, length)
+                        .expect("Reading file content failed"),
+                    length
+                );
+                assert_eq!(read_data.len(), length);
+                if length > 0 {
+                    assert_eq!(&read_data, &data[index..(index + length)]);
+                }
+            }
         }
     }
 }

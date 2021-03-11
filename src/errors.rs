@@ -108,3 +108,28 @@ impl From<WrappedError> for LoadingError {
         LoadingError::DatabaseError(error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))
     }
 }
+
+/// An error occurring during reading a file from the virtual file system.
+#[derive(Debug, PartialEq)]
+pub enum ReadError {
+    /// The specified indices are out of bounds.
+    OutOfBounds,
+    /// The size of the indices or virtual files extend the bounds imposed by SQLite.
+    FileSystemLimits,
+    /// The sink written to raised an error.
+    SinkError(ErrorKind),
+    /// A general database error from SQLite.
+    DatabaseError(DatabaseError),
+}
+
+impl From<WrappedError> for ReadError {
+    fn from(error: WrappedError) -> Self {
+        ReadError::DatabaseError(error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))
+    }
+}
+
+impl From<IoError> for ReadError {
+    fn from(error: IoError) -> Self {
+        ReadError::SinkError(error.kind())
+    }
+}
