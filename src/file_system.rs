@@ -6,7 +6,8 @@ use rusqlite::limits::Limit;
 use rusqlite::{params, Connection as Database, DatabaseName, Error, ErrorCode, OptionalExtension};
 
 use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError, ReadError};
-use super::util::{Availability, Handle, MetaData, VirtualPath};
+pub use super::util::Handle;
+use super::util::{Availability, MetaData, VirtualPath};
 
 mod constants {
     use const_format::formatcp;
@@ -46,7 +47,7 @@ mod constants {
         MATRYOSHKA_TABLE
     );
     pub const SQL_SIZE: &str = formatcp!(
-        "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM {} WHERE file_id = ?",
+        "SELECT COALESCE(SUM(LENGTH(data)), -1) FROM {} WHERE file_id = ?",
         DATA_TABLE
     );
     pub const SQL_DELETE: &str = formatcp!("DELETE FROM {} WHERE id = ?", MATRYOSHKA_TABLE);
@@ -295,7 +296,7 @@ where
         }
     }
 
-    fn size(&self, handle: Handle) -> Result<usize, DatabaseError> {
+    fn size(&self, handle: Handle) -> Result<Option<usize>, DatabaseError> {
         let mut handle_query = self
             .database
             .borrow()
@@ -303,7 +304,11 @@ where
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
         handle_query
             .query_row(params![handle.0], |row| {
-                Ok(row.get_unwrap::<_, i32>(0) as usize)
+                let raw_size: i64 = row.get_unwrap(0);
+                match raw_size >= 0 {
+                    true => Ok(Some(raw_size as usize)),
+                    false => Ok(None),
+                }
             })
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))
     }
@@ -332,7 +337,8 @@ where
         let handle = file_system.create(path.as_ref(), data, chunk_size)?;
         let size = file_system
             .size(handle)
-            .map_err(CreationError::DatabaseError)?;
+            .map_err(CreationError::DatabaseError)?
+            .expect("Missing file size for existing file");
         Ok(File {
             file_system,
             handle,
@@ -352,7 +358,8 @@ where
                 handle,
                 size: file_system
                     .size(handle)
-                    .map_err(LoadingError::DatabaseError)?,
+                    .map_err(LoadingError::DatabaseError)?
+                    .expect("Missing file size for existing file"),
                 current_index: 0,
             }),
             Ok(None) => Err(LoadingError::FileNotFound),
@@ -374,15 +381,39 @@ where
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
+
+    /// Query the raw underlying handle.
+    pub fn handle(&self) -> Handle {
+        self.handle
+    }
+}
+
+impl<'a, D: BorrowMut<Database>> TryFrom<(&'a mut FileSystem<D>, Handle)> for File<'a, D> {
+    type Error = LoadingError;
+
+    fn try_from(value: (&'a mut FileSystem<D>, Handle)) -> Result<Self, Self::Error> {
+        let (file_system, handle) = value;
+        match file_system.size(handle) {
+            Ok(Some(size)) => Ok(File {
+                file_system,
+                handle,
+                size,
+                current_index: 0,
+            }),
+            Ok(None) => Err(LoadingError::FileNotFound),
+            Err(error) => Err(LoadingError::DatabaseError(error)),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryInto;
+
     use test_case::test_case;
 
-    use crate::errors::{CreationError, ReadError};
-
-    use super::{Database, File, FileSystem, FileSystemError};
+    use super::super::errors::{CreationError, LoadingError, ReadError};
+    use super::{Database, File, FileSystem, FileSystemError, Handle};
 
     #[test]
     fn test_loading() {
@@ -500,5 +531,64 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_handle() {
+        let mut file_system = FileSystem::load(
+            Database::open_in_memory().expect("Open in-memory database failed"),
+            true,
+        )
+        .expect("Creating filesystem failed");
+        let data = [1u8, 2, 3];
+
+        let handle = {
+            let file =
+                File::create(&mut file_system, "file", &data[..], 3).expect("File creation failed");
+            assert_eq!(file.len(), data.len());
+            file.handle
+        };
+
+        // Create an invalid handle and check it is not equal to the "real" one
+        let invalid_handle: Handle = 42.into();
+        assert_ne!(handle, invalid_handle);
+
+        // Re-open file from handle
+        {
+            let file: File<_> = (&mut file_system, handle)
+                .try_into()
+                .expect("Reconstructing file from handle failed");
+            assert_eq!(file.len(), data.len());
+        }
+
+        // Check that invalid handle is correctly identified
+        let invalid_file: Result<File<_>, _> = (&mut file_system, invalid_handle).try_into();
+        assert_eq!(
+            invalid_file.expect_err("Successful reconstruction of invalid handle"),
+            LoadingError::FileNotFound
+        );
+    }
+
+    #[test]
+    fn test_empty_file() {
+        let mut file_system = FileSystem::load(
+            Database::open_in_memory().expect("Open in-memory database failed"),
+            true,
+        )
+        .expect("Unable to create file system");
+        let data = Vec::new();
+
+        let handle = {
+            let file =
+                File::create(&mut file_system, "abc", &data[..], 3).expect("Unable to create file");
+            assert_eq!(file.len(), 0);
+            assert_eq!(file.is_empty(), true);
+            file.handle()
+        };
+
+        let reopened_file: File<_> = (&mut file_system, handle)
+            .try_into()
+            .expect("Unable to re-open empty file");
+        assert_eq!(reopened_file.len(), 0);
     }
 }
