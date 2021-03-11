@@ -66,13 +66,6 @@ pub struct FileSystem<D> {
     meta_data: MetaData,
 }
 
-/// A file stored in the virtual file system.
-#[derive(Debug)]
-pub struct File<'a, D> {
-    file_system: &'a FileSystem<D>,
-    handle: Handle,
-}
-
 impl<D> FileSystem<D>
 where
     D: BorrowMut<Database>,
@@ -316,6 +309,15 @@ where
     }
 }
 
+/// A file stored in the virtual file system.
+#[derive(Debug)]
+pub struct File<'a, D> {
+    file_system: &'a FileSystem<D>,
+    handle: Handle,
+    size: usize,
+    current_index: usize,
+}
+
 impl<'a, D> File<'a, D>
 where
     D: BorrowMut<Database>,
@@ -327,12 +329,16 @@ where
         data: R,
         chunk_size: usize,
     ) -> Result<File<'a, D>, CreationError> {
-        file_system
-            .create(path.as_ref(), data, chunk_size)
-            .map(move |handle| File {
-                file_system,
-                handle,
-            })
+        let handle = file_system.create(path.as_ref(), data, chunk_size)?;
+        let size = file_system
+            .size(handle)
+            .map_err(CreationError::DatabaseError)?;
+        Ok(File {
+            file_system,
+            handle,
+            size,
+            current_index: 0,
+        })
     }
 
     /// Load a file from the virtual file system.
@@ -344,6 +350,10 @@ where
             Ok(Some(handle)) => Ok(File {
                 file_system,
                 handle,
+                size: file_system
+                    .size(handle)
+                    .map_err(LoadingError::DatabaseError)?,
+                current_index: 0,
             }),
             Ok(None) => Err(LoadingError::FileNotFound),
             Err(database_error) => Err(LoadingError::DatabaseError(database_error)),
@@ -357,12 +367,12 @@ where
 
     /// Query the length of the file.
     pub fn len(&self) -> usize {
-        self.file_system.size(self.handle).unwrap_or(0)
+        self.size
     }
 
     /// Checks whether the file is empty.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.size == 0
     }
 }
 
