@@ -1,13 +1,19 @@
+//! The "safe and rusty" implementation of the virtual file system.
+
 use std::borrow::BorrowMut;
 use std::convert::{TryFrom, TryInto};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
 
 use rusqlite::limits::Limit;
-use rusqlite::{params, Connection as Database, DatabaseName, Error, ErrorCode, OptionalExtension};
+use rusqlite::{
+    params, Connection as Database, DatabaseName, Error as RusqliteError, ErrorCode,
+    OptionalExtension,
+};
 
 use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError, ReadError};
 pub use super::util::Handle;
 use super::util::{Availability, MetaData, VirtualPath};
+use crate::errors::Error;
 
 mod constants {
     use const_format::formatcp;
@@ -169,7 +175,7 @@ where
                 chunk_size as i32
             ]) {
                 Ok(handle) => handle,
-                Err(Error::SqliteFailure(error, _))
+                Err(RusqliteError::SqliteFailure(error, _))
                     if error.code == ErrorCode::ConstraintViolation =>
                 {
                     return Err(CreationError::FileExists);
@@ -397,7 +403,14 @@ where
     }
 
     /// Read the content of a file from the virtual file system.
-    pub fn read<W: Write>(&self, sink: W, index: usize, length: usize) -> Result<usize, ReadError> {
+    ///
+    /// This function does not(!) modify the internal position. In practise, using the Read trait might be more advantageous.
+    pub fn random_read<W: Write>(
+        &self,
+        sink: W,
+        index: usize,
+        length: usize,
+    ) -> Result<usize, ReadError> {
         self.file_system.read(self.handle, sink, index, length)
     }
 
@@ -419,6 +432,27 @@ where
     /// Delete the file from the virtual file system.
     pub fn delete(self) -> bool {
         self.file_system.delete(self.handle) == Ok(1)
+    }
+}
+
+impl<'a, D: BorrowMut<Database>> Read for File<'a, D> {
+    fn read(&mut self, mut buf: &mut [u8]) -> IoResult<usize> {
+        let length = std::cmp::min(buf.len(), self.size - self.current_index);
+        match self
+            .file_system
+            .read(self.handle, &mut buf, self.current_index, length)
+        {
+            Ok(written_bytes) => {
+                self.current_index += written_bytes;
+                Ok(written_bytes)
+            }
+            Err(error) => Err(IoError::new(ErrorKind::Other, error.error_message())),
+        }
+    }
+
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> IoResult<usize> {
+        *buf = vec![0u8; self.size - self.current_index];
+        self.read(&mut buf[..])
     }
 }
 
@@ -448,6 +482,7 @@ mod tests {
 
     use super::super::errors::{CreationError, LoadingError, ReadError};
     use super::{Database, File, FileSystem, FileSystemError, Handle};
+    use std::io::Read;
 
     #[test]
     fn test_loading() {
@@ -549,13 +584,13 @@ mod tests {
             let mut read_data = Vec::new();
             if is_out_of_bounds {
                 assert_eq!(
-                    file.read(&mut read_data, index, length)
+                    file.random_read(&mut read_data, index, length)
                         .expect_err("Reading file content was successful despite out of bounds"),
                     ReadError::OutOfBounds
                 );
             } else {
                 assert_eq!(
-                    file.read(&mut read_data, index, length)
+                    file.random_read(&mut read_data, index, length)
                         .expect("Reading file content failed"),
                     length
                 );
@@ -565,6 +600,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_read_trait() {
+        let mut file_system = FileSystem::load(
+            Database::open_in_memory().expect("Open in-memory database failed"),
+            true,
+        )
+        .expect("Creating filesystem failed");
+
+        let data = [1u8, 2, 3, 4, 5];
+
+        let mut file =
+            File::create(&mut file_system, "file", &data[..], 3).expect("File creation failed");
+        let mut buffer = vec![0u8; 3];
+        assert_eq!(file.read(&mut buffer[..]).expect("Successful read"), 3);
+        assert_eq!(&buffer, &[1u8, 2, 3]);
+
+        assert_eq!(file.read_to_end(&mut buffer).expect("Successful read"), 2);
+        assert_eq!(&buffer, &[4, 5]);
+
+        // Test that it is safe to read at EOF
+        assert_eq!(file.read(&mut buffer[..]).expect("Successful read"), 0);
+        assert_eq!(file.read_to_end(&mut buffer).expect("Successful read"), 0);
     }
 
     #[test]
@@ -631,7 +690,8 @@ mod tests {
         let mut file_system = FileSystem::load(
             Database::open_in_memory().expect("Open in-memory database failed"),
             true,
-        ).expect("Creating filesystem failed");
+        )
+        .expect("Creating filesystem failed");
         let data = [1u8, 2, 3];
         let path = "abc";
 
