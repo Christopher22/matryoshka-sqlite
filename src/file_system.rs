@@ -124,6 +124,24 @@ where
         })
     }
 
+    /// Query the file system for those files with a specific GLOB pattern. Both the '?' and the '*' placeholder are supported
+    pub fn find<T: AsRef<str>>(&self, path: T) -> Result<Vec<String>, DatabaseError> {
+        let path: VirtualPath = path.as_ref().into();
+        let mut handle_query = self
+            .database
+            .borrow()
+            .prepare_cached(constants::SQL_GLOB)
+            .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
+        let result = handle_query
+            .query_map(params![path.as_ref(), constants::FILE_ID], |row| {
+                Ok(row.get_unwrap(0))
+            })
+            .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?
+            .map(|handle| handle.unwrap())
+            .collect();
+        Ok(result)
+    }
+
     fn create<T: Into<VirtualPath>, R: Read>(
         &mut self,
         path: T,
@@ -404,10 +422,10 @@ where
     }
 }
 
-impl<'a, D: BorrowMut<Database>> TryFrom<(&'a mut FileSystem<D>, Handle)> for File<'a, D> {
+impl<'a, D: BorrowMut<Database>> TryFrom<(&'a FileSystem<D>, Handle)> for File<'a, D> {
     type Error = LoadingError;
 
-    fn try_from(value: (&'a mut FileSystem<D>, Handle)) -> Result<Self, Self::Error> {
+    fn try_from(value: (&'a FileSystem<D>, Handle)) -> Result<Self, Self::Error> {
         let (file_system, handle) = value;
         match file_system.size(handle) {
             Ok(Some(size)) => Ok(File {
@@ -571,14 +589,14 @@ mod tests {
 
         // Re-open file from handle
         {
-            let file: File<_> = (&mut file_system, handle)
+            let file: File<_> = (&file_system, handle)
                 .try_into()
                 .expect("Reconstructing file from handle failed");
             assert_eq!(file.len(), data.len());
         }
 
         // Check that invalid handle is correctly identified
-        let invalid_file: Result<File<_>, _> = (&mut file_system, invalid_handle).try_into();
+        let invalid_file: Result<File<_>, _> = (&file_system, invalid_handle).try_into();
         assert_eq!(
             invalid_file.expect_err("Successful reconstruction of invalid handle"),
             LoadingError::FileNotFound
@@ -602,7 +620,7 @@ mod tests {
             file.handle()
         };
 
-        let reopened_file: File<_> = (&mut file_system, handle)
+        let reopened_file: File<_> = (&file_system, handle)
             .try_into()
             .expect("Unable to re-open empty file");
         assert_eq!(reopened_file.len(), 0);
@@ -613,8 +631,7 @@ mod tests {
         let mut file_system = FileSystem::load(
             Database::open_in_memory().expect("Open in-memory database failed"),
             true,
-        )
-        .expect("Creating filesystem failed");
+        ).expect("Creating filesystem failed");
         let data = [1u8, 2, 3];
         let path = "abc";
 
@@ -637,5 +654,62 @@ mod tests {
 
         // Check a new file can be created
         File::create(&mut file_system, path, &data[..], 3).expect("File (re-)creation failed");
+    }
+
+    #[test]
+    fn test_find() {
+        let mut file_system = FileSystem::load(
+            Database::open_in_memory().expect("Open in-memory database failed"),
+            true,
+        )
+        .expect("Creating filesystem failed");
+
+        let paths = [
+            "folder/example_file_1.txt",
+            "folder/example_file_2.txt",
+            "folder/nested_folder1/file1.txt",
+            "folder/nested_folder1/file2.txt",
+            "folder/nested_folder2/file1.txt",
+        ];
+        let data = [1u8, 2, 3];
+        for path in paths.iter() {
+            File::create(&mut file_system, path, &data[..], 42).expect("Creating file failed");
+        }
+
+        // Check non-existing paths
+        assert_eq!(file_system.find("folder").expect("Finding failed").len(), 0);
+
+        // Check existing paths - makes no real sense, but...
+        assert_eq!(file_system.find(paths[0]).expect("Finding failed").len(), 1);
+
+        // Check single char wildcard
+        assert_eq!(
+            file_system
+                .find("folder/example_file_?.txt")
+                .expect("Finding failed")
+                .len(),
+            2
+        );
+
+        // Check multiple char wildcard
+        assert_eq!(
+            file_system
+                .find("folder/example_*.txt")
+                .expect("Finding failed")
+                .len(),
+            2
+        );
+
+        // Check multiple char wildcard in folders
+        assert_eq!(
+            file_system
+                .find("folder/*/*")
+                .expect("Finding failed")
+                .len(),
+            3
+        );
+
+        // Check general wildcard
+        assert_eq!(file_system.find("*").expect("Finding failed").len(), 5);
     }
 }
