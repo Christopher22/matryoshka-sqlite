@@ -3,7 +3,9 @@
 #![deny(missing_docs)]
 
 pub mod errors;
-mod file_system;
+/// cbindgen:ignore
+pub mod file_system;
 mod util;
 
-pub use self::file_system::*;
+mod ffi;
+pub use self::ffi::*;
