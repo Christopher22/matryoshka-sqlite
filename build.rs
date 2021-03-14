@@ -1,6 +1,6 @@
+use cbindgen::DocumentationStyle;
 use std::env;
 use std::path::PathBuf;
-use cbindgen::DocumentationStyle;
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -8,13 +8,18 @@ fn main() {
         crate_dir.as_ref(),
         "target",
         env::var("PROFILE").expect("PROFILE missing").as_ref(),
-        "matryoshka.h"
-    ].iter().collect();
+        "matryoshka.h",
+    ]
+    .iter()
+    .collect();
 
-    let mut config: cbindgen::Config = Default::default();
-    config.language = cbindgen::Language::Cxx;
-    config.include_guard = Some(String::from("MATRYOSHKA"));
-    config.documentation_style = DocumentationStyle::Doxy;
+    let config = cbindgen::Config {
+        language: cbindgen::Language::Cxx,
+        include_guard: Some(String::from("MATRYOSHKA")),
+        documentation_style: DocumentationStyle::Doxy,
+        ..Default::default()
+    };
+
     cbindgen::generate_with_config(&crate_dir, config)
         .unwrap()
         .write_to_file(output_file);
