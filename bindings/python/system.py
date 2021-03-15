@@ -26,8 +26,21 @@ class System(Enum):
     def load(self, path: Union[Path, str]):
         return ctypes.WinDLL(path) if self == System.Windows else ctypes.CDLL(path)
 
-    def dynamic_library_extension(self) -> str:
-        return ".dll" if self == System.Windows else ".so"
+    def dynamic_library_name(self, name: str) -> str:
+        return f"{self.dynamic_library_prefix()}{name}{self.dynamic_library_suffix()}"
+
+    def dynamic_library_prefix(self) -> str:
+        return "" if self == System.Windows else "lib"
+
+    def dynamic_library_suffix(self) -> str:
+        if self == System.Windows:
+            return ".dll"
+        elif self == System.Linux:
+            return ".so"
+        elif self == System.MacOS:
+            return ".dylib"
+        else:
+            raise NotImplementedError("Unsupported OS")
 
     def dynamic_library_env(self) -> str:
         if self == System.Windows:

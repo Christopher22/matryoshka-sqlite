@@ -12,7 +12,9 @@ class TestMatryoshka(unittest.TestCase):
     def setUp(self) -> None:
         dll_path = Matryoshka.find()
         if dll_path is None:
-            raise ValueError("Please add Matryoshka.dll to your path")
+            raise ValueError(
+                "Please add matryoshka to your directory for shared libraries"
+            )
 
         self.matryoshka = Matryoshka(str(dll_path)).__enter__()
 

@@ -35,7 +35,7 @@ class Matryoshka:
 
         system = System.identify()
         for path in system.dynamic_library_paths():
-            file = path / f"{name}{system.dynamic_library_extension()}"
+            file = path / system.dynamic_library_name(name)
             if file.is_file():
                 return str(file)
         return None
