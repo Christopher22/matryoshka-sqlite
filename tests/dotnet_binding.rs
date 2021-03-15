@@ -5,7 +5,7 @@ mod util;
 
 #[test]
 fn test_dotnet_binding() {
-    let dotnet_binding: PathBuf = [env!("CARGO_MANIFEST_DIR"), "bindings", "dotnet_binding"]
+    let dotnet_binding: PathBuf = [env!("CARGO_MANIFEST_DIR"), "bindings", "dotnet"]
         .iter()
         .collect();
     assert!(dotnet_binding.is_dir(), ".net binding not found");
