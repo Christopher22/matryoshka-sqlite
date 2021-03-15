@@ -6,23 +6,9 @@ on:
     branches:
     - master
 
-name: Continuous integration
+name: Continuous integration and deployment
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-
   test:
     name: Tests
     runs-on: ${{ matrix.os }}
@@ -79,3 +65,30 @@ jobs:
         with:
           command: clippy
           args: -- -D warnings
+
+  build:
+    name: Build
+    needs: [test, fmt, clippy]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - uses: actions/upload-artifact@v2
+        with:
+          name: matryoshka (${{ matrix.os }})
+          path: |
+            **/matryoshka.h
+            **/matryoshka.dll
+            **/matryoshka.dylib
+            **/matryoshka.so
