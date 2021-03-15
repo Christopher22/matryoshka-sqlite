@@ -5,10 +5,15 @@ mod util;
 
 #[test]
 fn test_dotnet_binding() {
-    let dotnet_binding: PathBuf = [env!("CARGO_MANIFEST_DIR"), "bindings", "dotnet"]
-        .iter()
-        .collect();
-    assert!(dotnet_binding.is_dir(), ".NET binding not found");
+    let dotnet_binding: PathBuf = [
+        env!("CARGO_MANIFEST_DIR"),
+        "bindings",
+        "dotnet",
+        "matryoshka.sln",
+    ]
+    .iter()
+    .collect();
+    assert!(dotnet_binding.is_file(), ".NET binding not found");
 
     let output = util::execute_with_shared_lib(Command::new("dotnet").args(&[
         "test",
