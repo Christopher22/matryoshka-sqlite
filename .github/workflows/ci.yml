@@ -1,4 +1,10 @@
-on: [push, pull_request]
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
 
 name: Continuous integration
 
@@ -18,13 +24,17 @@ jobs:
           command: check
 
   test:
-    name: Test Suite
+    name: Tests
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v2
+      - name: Fix Python version to 3.6
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.6'
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -35,7 +45,7 @@ jobs:
           command: test
 
   fmt:
-    name: Rustfmt
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
