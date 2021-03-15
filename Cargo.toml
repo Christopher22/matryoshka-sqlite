@@ -1,6 +1,6 @@
 [package]
 name = "matryoshka-sqlite"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Christopher Gundler <christopher@gundler.de>"]
 edition = "2018"
 build = "build.rs"
@@ -24,3 +24,6 @@ tempfile = "3.2"
 
 [build-dependencies]
 cbindgen = "0.18"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

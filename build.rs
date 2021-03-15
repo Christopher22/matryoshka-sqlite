@@ -23,4 +23,12 @@ fn main() {
     cbindgen::generate_with_config(&crate_dir, config)
         .unwrap()
         .write_to_file(output_file);
+
+    // On Microsoft Windows: Embed metadata such as the version into the library
+    #[cfg(target_os = "windows")]
+    {
+        let mut res = winres::WindowsResource::new();
+        res.set("ProductName", "matryoshka");
+        res.compile().unwrap();
+    }
 }
