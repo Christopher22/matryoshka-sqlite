@@ -4,6 +4,7 @@ version = "0.3.0"
 authors = ["Christopher Gundler <christopher@gundler.de>"]
 edition = "2018"
 build = "build.rs"
+license = "MIT OR Apache-2.0"
 
 [lib]
 name = "matryoshka"

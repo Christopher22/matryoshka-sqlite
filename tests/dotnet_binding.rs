@@ -5,10 +5,16 @@ mod util;
 
 #[test]
 fn test_dotnet_binding() {
-    let dotnet_binding: PathBuf = [env!("CARGO_MANIFEST_DIR"), "bindings", "dotnet_binding"]
-        .iter()
-        .collect();
-    assert!(dotnet_binding.is_dir(), ".net binding not found");
+    let dotnet_binding: PathBuf = [
+        env!("CARGO_MANIFEST_DIR"),
+        "bindings",
+        "dotnet",
+        "Matryoshka.Tests",
+        "Matryoshka.Tests.csproj",
+    ]
+    .iter()
+    .collect();
+    assert!(dotnet_binding.is_file(), ".NET binding not found");
 
     let output = util::execute_with_shared_lib(Command::new("dotnet").args(&[
         "test",
@@ -16,9 +22,13 @@ fn test_dotnet_binding() {
         "-v",
         "detailed",
     ]))
-    .expect("Running python tests failed - is Python correctly installed?");
+    .expect("Running .NET tests failed.");
 
     if !output.status.success() {
-        panic!(String::from_utf8(output.stderr).expect("Invalid STDERR"));
+        panic!(
+            ".NET test failed with code {}: {}",
+            output.status.code().expect("No error code"),
+            String::from_utf8(output.stderr).expect("Invalid STDERR")
+        );
     }
 }
