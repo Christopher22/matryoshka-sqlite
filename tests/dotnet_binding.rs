@@ -9,7 +9,8 @@ fn test_dotnet_binding() {
         env!("CARGO_MANIFEST_DIR"),
         "bindings",
         "dotnet",
-        "dotnet.sln",
+        "Matryoshka.Tests",
+        "Matryoshka.Tests.csproj",
     ]
     .iter()
     .collect();
