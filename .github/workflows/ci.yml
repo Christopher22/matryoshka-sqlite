@@ -88,7 +88,29 @@ jobs:
         with:
           name: matryoshka (${{ matrix.os }})
           path: |
-            **/matryoshka.h
-            **/matryoshka.dll
-            **/matryoshka.dylib
-            **/matryoshka.so
+            target/release/matryoshka.h
+            target/release/matryoshka.dll
+            target/release/libmatryoshka.dylib
+            target/release/libmatryoshka.so
+
+  documentation:
+    name: Documentation
+    needs: [ test, fmt, clippy ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --no-deps
+      uses: JamesIves/github-pages-deploy-action@4.1.0
+        with:
+          branch: documentation
+          folder: target/doc
+          single-commit: true
+          clean: true
