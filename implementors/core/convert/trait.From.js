@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["matryoshka"] = [{"text":"impl From&lt;Error&gt; for CreationError","synthetic":false,"types":[]},{"text":"impl From&lt;Error&gt; for CreationError","synthetic":false,"types":[]},{"text":"impl From&lt;Error&gt; for FileSystemError","synthetic":false,"types":[]},{"text":"impl From&lt;Error&gt; for LoadingError","synthetic":false,"types":[]},{"text":"impl From&lt;Error&gt; for ReadError","synthetic":false,"types":[]},{"text":"impl From&lt;Error&gt; for ReadError","synthetic":false,"types":[]},{"text":"impl From&lt;i64&gt; for Handle","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["matryoshka"] = [{"text":"impl Display for DatabaseError","synthetic":false,"types":[]},{"text":"impl Display for CreationError","synthetic":false,"types":[]},{"text":"impl Display for FileSystemError","synthetic":false,"types":[]},{"text":"impl Display for LoadingError","synthetic":false,"types":[]},{"text":"impl Display for ReadError","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

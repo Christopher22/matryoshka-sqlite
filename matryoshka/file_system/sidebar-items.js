@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["File","A file stored in the virtual file system."],["FileSystem","A virtual file system in a SQLite database."],["Handle","A raw handle to a file in the virtual file system."]]});

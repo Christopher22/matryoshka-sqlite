@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["matryoshka"] = [{"text":"impl StructuralPartialEq for DatabaseError","synthetic":false,"types":[]},{"text":"impl StructuralPartialEq for CreationError","synthetic":false,"types":[]},{"text":"impl StructuralPartialEq for FileSystemError","synthetic":false,"types":[]},{"text":"impl StructuralPartialEq for LoadingError","synthetic":false,"types":[]},{"text":"impl StructuralPartialEq for ReadError","synthetic":false,"types":[]},{"text":"impl StructuralPartialEq for Handle","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
