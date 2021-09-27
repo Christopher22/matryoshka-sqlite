@@ -81,5 +81,27 @@ namespace Matryoshka.Tests
                 });
             }
         }
+
+        [Fact]
+        public void TestFind() {
+            var file_system = new FileSystem(":memory:");
+
+            using (var tmp_dir = new TemporaryDirectory()) {
+                var input_file_1 = tmp_dir.GetFile("input_file_1", new byte[] { 42, 32, 44 });
+                var input_file_2 = tmp_dir.GetFile("input_file_2", new byte[] { 45, 46, 47 });
+                var input_file_3 = tmp_dir.GetFile("input_file_3", new byte[] { 48, 49, 50 });
+
+                // Push files
+                file_system.Push("folder1/file1", input_file_1, -1);
+                file_system.Push("folder1/file2", input_file_2, -1);
+                file_system.Push("folder2/file1", input_file_3, -1);
+
+                // Check find
+                Assert.Equal(3, file_system.Find("*").Count);
+                Assert.Equal(2, file_system.Find("folder?/file1").Count);
+                Assert.Equal(2, file_system.Find("*/file1").Count);
+                Assert.Equal(1, file_system.Find("folder2/*").Count);
+            }
+        }
     }
 }
