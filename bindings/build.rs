@@ -6,6 +6,7 @@ fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let output_file: PathBuf = [
         crate_dir.as_ref(),
+        "..",
         "target",
         env::var("PROFILE").expect("PROFILE missing").as_ref(),
         "matryoshka.h",
