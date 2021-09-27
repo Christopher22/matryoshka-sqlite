@@ -23,7 +23,7 @@ mod constants {
     // One day, that might be derived directly from a const function.
     pub const DATA_TABLE: &str = "Matryoshka_Data";
 
-    pub const FILE_ID: u32 = 0;
+    pub const FILE_ID: u32 = 1;
 
     pub const DEFAULT_BYTE_BLOB_SIZE: usize = 33554432; // 32MB
 
@@ -138,13 +138,16 @@ where
             .borrow()
             .prepare_cached(constants::SQL_GLOB)
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?;
+
+        // We must cache the result to avoid lifetime issues.
         let result = handle_query
             .query_map(params![path.as_ref(), constants::FILE_ID], |row| {
                 Ok(row.get_unwrap(0))
             })
             .map_err(|error| error.try_into().expect(DatabaseError::LOGIC_ERROR_MESSAGE))?
-            .map(|handle| handle.unwrap())
+            .map(|handle| handle.unwrap()) // The price we have to pay to get a iterator ...
             .collect();
+
         Ok(result)
     }
 

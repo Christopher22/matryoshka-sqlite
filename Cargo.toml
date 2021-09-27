@@ -1,6 +1,6 @@
 [package]
 name = "matryoshka-sqlite"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Christopher Gundler <christopher@gundler.de>"]
 edition = "2018"
 build = "build.rs"
