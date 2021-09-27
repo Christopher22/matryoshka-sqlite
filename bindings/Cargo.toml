@@ -1,0 +1,25 @@
+[package]
+name = "matryoshka-sqlite-ffi"
+version = "0.4.0"
+authors = ["Christopher Gundler <christopher@gundler.de>"]
+edition = "2018"
+build = "build.rs"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "matryoshka"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+matryoshka-sqlite = { path = ".." }
+
+[build-dependencies]
+cbindgen = "0.20"
+
+[dev-dependencies]
+test-case = "1.1"
+test-cdylib = "1.1"
+tempfile = "3.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

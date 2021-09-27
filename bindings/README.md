@@ -1,0 +1,2 @@
+# matryoshka: Shared library
+This module contains the shared library of matryoshka, bindings, and associated test. The Python binding could be found in the "python" folder, the respective .NET binding in "dotnet".

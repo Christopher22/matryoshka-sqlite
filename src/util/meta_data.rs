@@ -84,6 +84,7 @@ impl Default for MetaDataExtractor {
 impl MetaDataExtractor {
     const META_TABLE_PREFIX: &'static str = "Matryoshka_Meta_";
 
+    #[cfg(test)]
     pub fn generate_table_name(version: u32) -> String {
         format!("{}{}", MetaDataExtractor::META_TABLE_PREFIX, version)
     }

@@ -1,0 +1,3 @@
+# Compile without dependencies on the Microsoft Visual C++ Redistributable Package 
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static"]

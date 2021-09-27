@@ -4,16 +4,16 @@ use std::borrow::BorrowMut;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
 
-use rusqlite::limits::Limit;
 use rusqlite::{
-    params, Connection as Database, DatabaseName, Error as RusqliteError, ErrorCode,
+    limits::Limit, params, Connection as Database, DatabaseName, Error as RusqliteError, ErrorCode,
     OptionalExtension,
 };
 
-use super::errors::{CreationError, DatabaseError, FileSystemError, LoadingError, ReadError};
-pub use super::util::Handle;
-use super::util::{Availability, MetaData, VirtualPath};
-use crate::errors::Error;
+use super::{
+    errors::{CreationError, DatabaseError, Error, FileSystemError, LoadingError, ReadError},
+    util::{Availability, MetaData, VirtualPath},
+    Handle,
+};
 
 mod constants {
     use const_format::formatcp;
@@ -188,7 +188,7 @@ where
                 }
             };
 
-            let mut buffer = vec![0u8; chunk_size as usize];
+            let mut buffer = vec![0u8; chunk_size];
             let mut chunk_index = 0u32;
             loop {
                 match data.read(buffer.as_mut()) {

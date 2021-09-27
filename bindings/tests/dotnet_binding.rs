@@ -7,7 +7,6 @@ mod util;
 fn test_dotnet_binding() {
     let dotnet_binding: PathBuf = [
         env!("CARGO_MANIFEST_DIR"),
-        "bindings",
         "dotnet",
         "Matryoshka.Tests",
         "Matryoshka.Tests.csproj",

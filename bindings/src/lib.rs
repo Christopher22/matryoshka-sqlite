@@ -5,14 +5,14 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::ptr::{null, null_mut};
 
-use rusqlite::Connection as Database;
+use matryoshka_sqlite::{
+    errors::{DatabaseError, Error},
+    Database, File, FileSystem as RawFileSystem, Handle as RawHandle,
+};
 
-use super::errors::{DatabaseError, Error};
-use super::file_system::{File, FileSystem as RawFileSystem, Handle as RawHandle};
+struct Environment(*mut *mut Status);
 
-struct Environment(*mut *mut super::Status);
-
-impl From<*mut *mut super::Status> for Environment {
+impl From<*mut *mut Status> for Environment {
     fn from(value: *mut *mut Status) -> Self {
         Self(value)
     }

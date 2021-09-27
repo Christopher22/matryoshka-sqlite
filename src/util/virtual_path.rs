@@ -4,13 +4,6 @@ use std::path::{Component, Path};
 /// A virtual path. Unlike a path file system, it is always properly normalized and valid Unicode.
 pub struct VirtualPath(String);
 
-impl VirtualPath {
-    /// Generates a virtual path from an given arguments. By default, simply use the "Into" trait.
-    pub fn from<T: AsRef<Path>>(value: T) -> Self {
-        value.into()
-    }
-}
-
 impl<T> From<T> for VirtualPath
 where
     T: AsRef<Path>,

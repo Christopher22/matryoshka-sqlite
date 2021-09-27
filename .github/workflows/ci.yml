@@ -1,10 +1,10 @@
 on:
   push:
     branches:
-    - master
+      - master
   pull_request:
     branches:
-    - master
+      - master
 
 name: Continuous integration and deployment
 
@@ -20,11 +20,11 @@ jobs:
       - name: Fix Python version to 3.6
         uses: actions/setup-python@v2
         with:
-          python-version: '3.6'
+          python-version: "3.6"
       - name: "Prepare .NET core for binding tests"
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: '3.1.x'
+          dotnet-version: "3.1.x"
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -32,7 +32,7 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          command: test
+          command: test --workspace
 
   fmt:
     name: Format
@@ -48,7 +48,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: fmt
-          args: --all -- --check
+          args: --workspace -- --check
 
   clippy:
     name: Clippy
@@ -64,7 +64,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --workspace -- -D warnings
 
   build:
     name: Build
@@ -72,7 +72,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -83,7 +83,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --workspace --release
       - uses: actions/upload-artifact@v2
         with:
           name: matryoshka (${{ matrix.os }})
@@ -95,7 +95,7 @@ jobs:
 
   documentation:
     name: Documentation
-    needs: [ test, fmt, clippy ]
+    needs: [test, fmt, clippy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -107,7 +107,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: doc
-          args: --no-deps
+          args: --workspace --no-deps
       - uses: JamesIves/github-pages-deploy-action@4.1.0
         with:
           branch: documentation

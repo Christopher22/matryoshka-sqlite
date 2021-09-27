@@ -1,11 +1,19 @@
 //! This crate provides virtual filesystems stored in a SQLite database.
-#![allow(dead_code)]
-#![deny(missing_docs)]
+#![deny(
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    trivial_casts,
+    trivial_numeric_casts,
+    unstable_features,
+    unused_import_braces,
+    unused_qualifications
+)]
 
 pub mod errors;
-/// cbindgen:ignore
-pub mod file_system;
+mod file_system;
 mod util;
 
-mod ffi;
-pub use self::ffi::*;
+pub use self::file_system::{File, FileSystem};
+pub use self::util::Handle;
+pub use rusqlite::Connection as Database;
