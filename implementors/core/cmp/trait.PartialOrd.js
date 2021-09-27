@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["matryoshka_sqlite"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.55.0/core/cmp/trait.PartialOrd.html\" title=\"trait core::cmp::PartialOrd\">PartialOrd</a>&lt;<a class=\"struct\" href=\"matryoshka_sqlite/struct.Handle.html\" title=\"struct matryoshka_sqlite::Handle\">Handle</a>&gt; for <a class=\"struct\" href=\"matryoshka_sqlite/struct.Handle.html\" title=\"struct matryoshka_sqlite::Handle\">Handle</a>","synthetic":false,"types":["matryoshka_sqlite::util::handle::Handle"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
