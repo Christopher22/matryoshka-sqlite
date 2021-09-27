@@ -17,6 +17,9 @@ fn test_python_binding() {
     .expect("Running python tests failed - is Python correctly installed?");
 
     if !output.status.success() {
-        panic!(String::from_utf8(output.stderr).expect("Invalid STDERR"));
+        panic!(
+            "{}",
+            String::from_utf8(output.stderr).expect("Invalid STDERR")
+        );
     }
 }

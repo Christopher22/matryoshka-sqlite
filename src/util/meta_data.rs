@@ -43,7 +43,7 @@ impl MetaData {
         let last_version = versions
             .mapped(|row| {
                 match row
-                    .get_raw_checked(0)
+                    .get_ref(0)
                     .map(|value| value.as_str().expect("Table name is not a string"))
                 {
                     Ok(text) => Ok(version_extractor.extract(text)),
@@ -145,7 +145,7 @@ mod tests {
                     "CREATE TABLE {} (example TEXT)",
                     MetaDataExtractor::generate_table_name(0)
                 ),
-                rusqlite::NO_PARAMS,
+                [],
             )
             .expect("Create database failed");
         assert_eq!(
@@ -160,7 +160,7 @@ mod tests {
                     "CREATE TABLE {} (example TEXT)",
                     MetaDataExtractor::generate_table_name(42)
                 ),
-                rusqlite::NO_PARAMS,
+                [],
             )
             .expect("Create database failed");
         assert_eq!(

@@ -21,10 +21,9 @@ where
             .as_ref()
             .components()
             .filter_map(|component| match component {
-                Component::Normal(raw_path) => match raw_path.to_str() {
-                    Some(value) => Some(Some(value.to_string())),
-                    None => None,
-                },
+                Component::Normal(raw_path) => {
+                    raw_path.to_str().map(|value| Some(value.to_string()))
+                }
                 Component::ParentDir => Some(None),
                 _ => None,
             })

@@ -40,14 +40,14 @@ impl Environment {
     }
 
     pub fn parse_str<'a>(c_string: *const c_char) -> Result<&'a str, String> {
-        Ok((!c_string.is_null())
+        (!c_string.is_null())
             .then(|| unsafe { CStr::from_ptr(c_string) })
             .ok_or_else(|| String::from("Path not specified"))
             .and_then(|raw_str| {
                 raw_str
                     .to_str()
                     .map_err(|_| String::from("Path contains invalid UTF8"))
-            })?)
+            })
     }
 
     pub fn destroy<T>(pointer: *mut T) {

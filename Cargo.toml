@@ -1,6 +1,6 @@
 [package]
 name = "matryoshka-sqlite"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Christopher Gundler <christopher@gundler.de>"]
 edition = "2018"
 build = "build.rs"
@@ -15,7 +15,7 @@ regex = "1"
 const_format = "0.2"
 
 [dependencies.rusqlite]
-version = "0.24"
+version = "0.25"
 features = ["bundled", "blob", "limits"]
 
 [dev-dependencies]
@@ -24,7 +24,7 @@ test-cdylib = "1.1"
 tempfile = "3.2"
 
 [build-dependencies]
-cbindgen = "0.18"
+cbindgen = "0.20"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

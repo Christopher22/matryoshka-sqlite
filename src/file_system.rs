@@ -93,8 +93,8 @@ where
             }
             Availability::Missing if create_file_system => {
                 let transaction = database.borrow_mut().transaction()?;
-                transaction.execute(constants::SQL_CREATE_META, rusqlite::NO_PARAMS)?;
-                transaction.execute(constants::SQL_CREATE_DATA, rusqlite::NO_PARAMS)?;
+                transaction.execute(constants::SQL_CREATE_META, [])?;
+                transaction.execute(constants::SQL_CREATE_DATA, [])?;
                 transaction.commit()?;
                 Ok(MetaData::from_version(
                     constants::CURRENT_MATRYOSHKA_VERSION,
@@ -237,10 +237,10 @@ where
         index: usize,
         length: usize,
     ) -> Result<usize, ReadError> {
-        let index = i32::try_from(index).map_err(|_| ReadError::FileSystemLimits)?;
+        let index = i64::try_from(index).map_err(|_| ReadError::FileSystemLimits)?;
 
         // Check length and exit early if not data is of interest
-        let length = i32::try_from(length).map_err(|_| ReadError::FileSystemLimits)?;
+        let length = i64::try_from(length).map_err(|_| ReadError::FileSystemLimits)?;
         if length == 0 {
             return Ok(0);
         }
@@ -252,9 +252,9 @@ where
             .prepare_cached(constants::SQL_GET_BLOBS)?;
 
         // Let SQLite calculate all the key characteristics
-        let mut chuck_size: Option<i32> = None;
-        let blob_indices: Vec<_> = blobs_statement
-            .query_map_named(
+        let mut chuck_size: Option<i64> = None;
+        let mut blob_iter = blobs_statement
+            .query_map(
                 &[
                     (":handle", &handle.0),
                     (":index", &index),
@@ -262,28 +262,28 @@ where
                 ],
                 |row| {
                     Ok(match chuck_size {
-                        Some(_) => (0usize, row.get_unwrap(0)),
+                        Some(chunk_size) => (0usize, row.get_unwrap(0), chunk_size),
                         None => {
-                            let raw_chunk_size = row.get_unwrap(2);
-                            let chunk_num: i32 = row.get_unwrap(1);
+                            let raw_chunk_size: i64 = row.get_unwrap(2);
+                            let chunk_num: i64 = row.get_unwrap(1);
                             chuck_size = Some(raw_chunk_size);
-                            let offset: i32 = index - (chunk_num * raw_chunk_size);
-                            (offset as usize, row.get_unwrap(0))
+                            let offset: i64 = index - (chunk_num * raw_chunk_size);
+                            (offset as usize, row.get_unwrap(0), raw_chunk_size)
                         }
                     })
                 },
             )?
-            .map(|blob_index| blob_index.unwrap())
-            .collect();
-
-        let chunk_size = chuck_size.ok_or(ReadError::OutOfBounds)?;
+            .map(|blob_index| blob_index.unwrap());
 
         // Initialize the chunk: Chunk size must always be equal or larger to the biggest blob.
-        let mut buffer = vec![0u8; chunk_size as usize];
+        let first_blob = blob_iter.next().ok_or(ReadError::OutOfBounds)?;
+        let mut buffer = vec![0u8; first_blob.2 as usize];
 
-        let mut bytes_read = 0i32;
+        let mut bytes_read = 0i64;
         let mut blob_cache: Option<rusqlite::blob::Blob> = None;
-        for (index, (first_index, blob_id)) in blob_indices.into_iter().enumerate() {
+        for (index, (first_index, blob_id, _)) in
+            std::iter::once(first_blob).chain(blob_iter).enumerate()
+        {
             let blob = match blob_cache {
                 None => self.database.borrow().blob_open(
                     DatabaseName::Main,
@@ -295,9 +295,10 @@ where
                 Some(mut blob) => blob.reopen(blob_id).map(|_| blob),
             }?;
 
-            let mut num_bytes = std::cmp::min(blob.size(), length - bytes_read);
+            let blob_size = blob.size() as i64;
+            let mut num_bytes = std::cmp::min(blob_size, length - bytes_read);
             if index == 0 {
-                num_bytes = std::cmp::min(blob.size() - first_index as i32, num_bytes);
+                num_bytes = std::cmp::min(blob_size - first_index as i64, num_bytes);
                 if num_bytes <= 0 {
                     return Err(ReadError::OutOfBounds);
                 }
