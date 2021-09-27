@@ -12,10 +12,13 @@ crate-type = ["lib"]
 [dependencies]
 regex = "1"
 const_format = "0.2"
+static_vcruntime = "1.5"
 
 [dependencies.rusqlite]
 version = "0.25"
 features = ["bundled", "blob", "limits"]
+git = "https://github.com/Christopher22/rusqlite"
+branch = "msvc-static-runtime"
 
 [dev-dependencies]
 test-case = "1.1"

@@ -10,6 +10,8 @@
     unused_qualifications
 )]
 
+extern crate static_vcruntime;
+
 pub mod errors;
 mod file_system;
 mod util;

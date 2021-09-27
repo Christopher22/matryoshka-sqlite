@@ -1,5 +1,7 @@
 #![allow(clippy::missing_safety_doc)] // Well, using C-pointers *is* unsafe...
 
+extern crate static_vcruntime;
+
 use std::convert::TryInto;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};

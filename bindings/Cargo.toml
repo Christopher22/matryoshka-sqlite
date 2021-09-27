@@ -12,6 +12,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 matryoshka-sqlite = { path = ".." }
+static_vcruntime = "1.5"
 
 [build-dependencies]
 cbindgen = "0.20"
